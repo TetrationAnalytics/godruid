@@ -305,6 +305,7 @@ type QueryScan struct {
 	Filter       *Filter                `json:"filter,omitempty"`
 	Context      map[string]interface{} `json:"context,omitempty"`
 	ResultFormat string                 `json:"resultFormat,omitempty"`
+	Legacy		 bool					`json:"legacy"`
 
 	QueryResult []ScanBlob `json:"-"`
 }
