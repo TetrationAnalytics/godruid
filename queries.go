@@ -301,11 +301,11 @@ type QueryScan struct {
 	BatchSize    int64                  `json:"batchSize"`
 	Limit        int64                  `json:"limit"`
 	Offset       int64                  `json:"offset"`
-	Order        string                 `json:"order"`
+	Order        string                 `json:"order,omitempty"`
 	Filter       *Filter                `json:"filter,omitempty"`
 	Context      map[string]interface{} `json:"context,omitempty"`
 	ResultFormat string                 `json:"resultFormat,omitempty"`
-	Legacy       bool		    `json:"legacy,omitempty"`
+	Legacy       bool                   `json:"legacy,omitempty"`
 
 	QueryResult []ScanBlob `json:"-"`
 }
