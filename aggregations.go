@@ -16,8 +16,8 @@ type Aggregator struct {
 }
 
 type FilteredAggregator struct {
-	Filter      *Filter       `json:"filter,omitempty"`
-	Aggregator  Aggregator    `json:"aggregator,omitempty"`
+	Filter     *Filter    `json:"filter,omitempty"`
+	Aggregator Aggregator `json:"aggregator,omitempty"`
 }
 
 type Aggregation struct {
@@ -51,6 +51,15 @@ func AggLongSum(name, fieldName string) Aggregation {
 func AggDoubleSum(name, fieldName string) Aggregation {
 	agg := Aggregator{
 		Type:      "doubleSum",
+		Name:      name,
+		FieldName: fieldName,
+	}
+	return Aggregation{agg, FilteredAggregator{}}
+}
+
+func AggLongMin(name, fieldName string) Aggregation {
+	agg := Aggregator{
+		Type:      "longMin",
 		Name:      name,
 		FieldName: fieldName,
 	}
