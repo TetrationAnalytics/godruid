@@ -66,6 +66,15 @@ func AggLongMin(name, fieldName string) Aggregation {
 	return Aggregation{agg, FilteredAggregator{}}
 }
 
+func AggLongMax(name, fieldName string) Aggregation {
+	agg := Aggregator{
+		Type:      "longMax",
+		Name:      name,
+		FieldName: fieldName,
+	}
+	return Aggregation{agg, FilteredAggregator{}}
+}
+
 func AggMin(name, fieldName string) Aggregation {
 	agg := Aggregator{
 		Type:      "min",
