@@ -30,10 +30,10 @@ type QueryGroupBy struct {
 	Intervals        []string               `json:"intervals"`
 	Context          map[string]interface{} `json:"context,omitempty"`
 
-	QueryResult []GroupbyItem `json:"-"`
+	QueryResult []GroupByItem `json:"-"`
 }
 
-type GroupbyItem struct {
+type GroupByItem struct {
 	Version   string                 `json:"version"`
 	Timestamp string                 `json:"timestamp"`
 	Event     map[string]interface{} `json:"event"`
@@ -41,7 +41,7 @@ type GroupbyItem struct {
 
 func (q *QueryGroupBy) setup() { q.QueryType = "groupBy" }
 func (q *QueryGroupBy) onResponse(content []byte) error {
-	res := new([]GroupbyItem)
+	res := new([]GroupByItem)
 	d := json.NewDecoder(bytes.NewReader(content))
 	d.UseNumber()
 	if err := d.Decode(res); err != nil {
@@ -49,6 +49,29 @@ func (q *QueryGroupBy) onResponse(content []byte) error {
 	}
 	q.QueryResult = *res
 	return nil
+}
+
+// QueryGroupByGeneric is the model for groupBy query but with a generic response type.
+type QueryGroupByGeneric[T any] struct {
+	*QueryGroupBy
+
+	QueryResult []GroupByItemGeneric[T] `json:"-"`
+}
+
+// GroupByItemGeneric is the response to groupBy query but with a generic type.
+type GroupByItemGeneric[T any] struct {
+	Version   string `json:"version"`
+	Timestamp string `json:"timestamp"`
+	Event     T      `json:"event"`
+}
+
+// Results flattens the groupBy results as 1 large array.
+func (q *QueryGroupByGeneric[T]) Results() []T {
+	result := make([]T, 0, len(q.QueryResult))
+	for _, blob := range q.QueryResult {
+		result = append(result, blob.Event)
+	}
+	return result
 }
 
 // ---------------------------------
@@ -200,6 +223,28 @@ func (q *QueryTimeseries) onResponse(content []byte) error {
 	return nil
 }
 
+// QueryTimeseriesGeneric is the model for timeseries query but with a generic response type.
+type QueryTimeseriesGeneric[T any] struct {
+	*QueryTimeseries
+
+	QueryResult []TimeseriesGeneric[T] `json:"-"`
+}
+
+// TimeseriesGeneric is the response to timeseries query but with a generic type.
+type TimeseriesGeneric[T any] struct {
+	Timestamp string `json:"timestamp"`
+	Result    T      `json:"result"`
+}
+
+// Results flattens the timeseries results as 1 large array.
+func (q *QueryTimeseriesGeneric[T]) Results() []T {
+	result := make([]T, 0, len(q.QueryResult))
+	for _, blob := range q.QueryResult {
+		result = append(result, blob.Result)
+	}
+	return result
+}
+
 // ---------------------------------
 // TopN Query
 // ---------------------------------
@@ -237,48 +282,21 @@ func (q *QueryTopN) onResponse(content []byte) error {
 	return nil
 }
 
-// ---------------------------------
-// Select Query
-// ---------------------------------
+// QueryTopNGeneric is the model for topn query but with a generic response type.
+type QueryTopNGeneric[T any] struct {
+	*QueryTopN
 
-type QuerySelect struct {
-	QueryType   string                 `json:"queryType"`
-	DataSource  string                 `json:"dataSource"`
-	Intervals   []string               `json:"intervals"`
-	Descending  bool                   `json:"descending"`
-	Filter      *Filter                `json:"filter,omitempty"`
-	Dimensions  []DimSpec              `json:"dimensions"`
-	Metrics     []string               `json:"metrics"`
-	Granularity Granlarity             `json:"granularity"`
-	PagingSpec  map[string]interface{} `json:"pagingSpec,omitempty"`
-	Context     map[string]interface{} `json:"context,omitempty"`
-
-	QueryResult []SelectBlob `json:"-"`
+	QueryResult []TopNItemGeneric[T] `json:"-"`
 }
 
-// Select json blob from druid comes back as following:
-// http://druid.io/docs/latest/querying/select-query.html
-// the interesting results are in events blob which we
-// call as 'SelectEvent'.
-type SelectBlob struct {
-	Timestamp string       `json:"timestamp"`
-	Result    SelectResult `json:"result"`
+// TopNItemGeneric is the response to topn query but with a generic type.
+type TopNItemGeneric[T any] struct {
+	Timestamp string `json:"timestamp"`
+	Result    []T    `json:"result"`
 }
 
-type SelectResult struct {
-	PagingIdentifiers map[string]int64 `json:"pagingIdentifiers"`
-	Events            []SelectEvent    `json:"events"`
-}
-
-type SelectEvent struct {
-	SegmentId string                 `json:"segmentId"`
-	Offset    int64                  `json:"offset"`
-	Event     map[string]interface{} `json:"event"`
-}
-
-func (q *QuerySelect) setup() { q.QueryType = "select" }
-func (q *QuerySelect) onResponse(content []byte) error {
-	res := new([]SelectBlob)
+func (q *QueryTopNGeneric[T]) onResponse(content []byte) error {
+	res := new([]TopNItemGeneric[T])
 	d := json.NewDecoder(bytes.NewReader(content))
 	d.UseNumber()
 	if err := d.Decode(res); err != nil {
@@ -286,6 +304,20 @@ func (q *QuerySelect) onResponse(content []byte) error {
 	}
 	q.QueryResult = *res
 	return nil
+}
+
+// Results flattens the results as 1 large array.
+func (q *QueryTopNGeneric[T]) Results() []T {
+	count := 0
+	for _, blob := range q.QueryResult {
+		count += len(blob.Result)
+	}
+	result := make([]T, 0, count)
+
+	for _, blob := range q.QueryResult {
+		result = append(result, blob.Result...)
+	}
+	return result
 }
 
 // ---------------------------------
@@ -327,4 +359,43 @@ func (q *QueryScan) onResponse(content []byte) error {
 	}
 	q.QueryResult = *res
 	return nil
+}
+
+// QueryScanGeneric is the model for scan query but with a generic response type.
+type QueryScanGeneric[T any] struct {
+	*QueryScan
+
+	QueryResult []ScanBlobGeneric[T] `json:"-"`
+}
+
+// ScanBlobGeneric is the response to scan query but with a generic type.
+type ScanBlobGeneric[T any] struct {
+	Columns   []string `json:"columns"`
+	SegmentID string   `json:"segmentId"`
+	Events    []T      `json:"events"`
+}
+
+func (q *QueryScanGeneric[T]) onResponse(content []byte) error {
+	res := new([]ScanBlobGeneric[T])
+	d := json.NewDecoder(bytes.NewReader(content))
+	d.UseNumber()
+	if err := d.Decode(res); err != nil {
+		return err
+	}
+	q.QueryResult = *res
+	return nil
+}
+
+// Results flattens the scan blobs results as 1 large array.
+func (q *QueryScanGeneric[T]) Results() []T {
+	count := 0
+	for _, blob := range q.QueryResult {
+		count += len(blob.Events)
+	}
+	result := make([]T, 0, count)
+
+	for _, blob := range q.QueryResult {
+		result = append(result, blob.Events...)
+	}
+	return result
 }
