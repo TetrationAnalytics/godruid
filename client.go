@@ -2,6 +2,7 @@ package godruid
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -24,6 +25,10 @@ type Client struct {
 }
 
 func (c *Client) Query(query Query) (err error) {
+	return c.QueryWithContext(context.Background(), query)
+}
+
+func (c *Client) QueryWithContext(ctx context.Context, query Query) (err error) {
 	query.setup()
 	var reqJson []byte
 	if c.Debug {
@@ -34,7 +39,7 @@ func (c *Client) Query(query Query) (err error) {
 	if err != nil {
 		return
 	}
-	result, err := c.QueryRaw(reqJson)
+	result, err := c.QueryRawWithContext(ctx, reqJson)
 	if err != nil {
 		return
 	}
@@ -43,6 +48,10 @@ func (c *Client) Query(query Query) (err error) {
 }
 
 func (c *Client) QueryRaw(req []byte) (result []byte, err error) {
+	return c.QueryRawWithContext(context.Background(), req)
+}
+
+func (c *Client) QueryRawWithContext(ctx context.Context, req []byte) (result []byte, err error) {
 	if c.EndPoint == "" {
 		c.EndPoint = DefaultEndPoint
 	}
@@ -63,7 +72,13 @@ func (c *Client) QueryRaw(req []byte) (result []byte, err error) {
 		Timeout: clientTimeout,
 	}
 
-	resp, err := httpClient.Post(c.Url+endPoint, "application/json", bytes.NewBuffer(req))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.Url+endPoint, bytes.NewBuffer(req))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		return
 	}
