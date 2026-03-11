@@ -39,11 +39,33 @@ func (c *Client) QueryWithContext(ctx context.Context, query Query) (err error) 
 	if err != nil {
 		return
 	}
-	result, err := c.QueryRawWithContext(ctx, reqJson)
+	resp, err := c.doRequest(ctx, reqJson)
 	if err != nil {
-		return
+		return err
+	}
+	defer func() {
+		resp.Body.Close()
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		body, readErr := ioutil.ReadAll(resp.Body)
+		if readErr != nil {
+			return readErr
+		}
+		return fmt.Errorf("%s: %s", resp.Status, string(body))
 	}
 
+	if rr, ok := query.(responseReader); ok && !c.Debug {
+		return rr.onResponseReader(resp.Body)
+	}
+
+	result, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if c.Debug {
+		c.LastResponse = string(result)
+	}
 	return query.onResponse(result)
 }
 
@@ -52,6 +74,30 @@ func (c *Client) QueryRaw(req []byte) (result []byte, err error) {
 }
 
 func (c *Client) QueryRawWithContext(ctx context.Context, req []byte) (result []byte, err error) {
+	resp, err := c.doRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		resp.Body.Close()
+	}()
+
+	result, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if c.Debug {
+		c.LastResponse = string(result)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s: %s", resp.Status, string(result))
+	}
+
+	return result, nil
+}
+
+func (c *Client) doRequest(ctx context.Context, req []byte) (*http.Response, error) {
 	if c.EndPoint == "" {
 		c.EndPoint = DefaultEndPoint
 	}
@@ -80,23 +126,8 @@ func (c *Client) QueryRawWithContext(ctx context.Context, req []byte) (result []
 
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
-		return
-	}
-	defer func() {
-		resp.Body.Close()
-	}()
-
-	result, err = ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return
-	}
-	if c.Debug {
-		c.LastResponse = string(result)
+		return nil, err
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: %s", resp.Status, string(result))
-	}
-
-	return
+	return resp, nil
 }
