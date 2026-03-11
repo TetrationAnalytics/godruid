@@ -3,6 +3,7 @@ package godruid
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 )
 
 // Check http://druid.io/docs/0.6.154/Querying.html#query-operators for detail description.
@@ -11,6 +12,10 @@ import (
 type Query interface {
 	setup()
 	onResponse(content []byte) error
+}
+
+type responseReader interface {
+	onResponseReader(r io.Reader) error
 }
 
 // ---------------------------------
@@ -38,6 +43,9 @@ type GroupByItem struct {
 	Timestamp string                 `json:"timestamp"`
 	Event     map[string]interface{} `json:"event"`
 }
+
+// Backward-compatible alias (legacy typo).
+type GroupbyItem = GroupByItem
 
 func (q *QueryGroupBy) setup() { q.QueryType = "groupBy" }
 func (q *QueryGroupBy) onResponse(content []byte) error {
@@ -340,6 +348,9 @@ type QueryScan struct {
 	Legacy       bool                   `json:"legacy,omitempty"`
 
 	QueryResult []ScanBlob `json:"-"`
+	// EventHandler, when set, is called once per decoded event during streaming.
+	// QueryResult will not be populated; the caller receives events inline.
+	EventHandler func(event map[string]interface{}) `json:"-"`
 }
 
 // ScanBlob is the response to scan query
@@ -361,6 +372,79 @@ func (q *QueryScan) onResponse(content []byte) error {
 	return nil
 }
 
+func (q *QueryScan) onResponseReader(r io.Reader) error {
+	d := json.NewDecoder(r)
+	d.UseNumber()
+	if q.EventHandler != nil {
+		return streamDecodeScanEvents(d, q.EventHandler)
+	}
+	res := new([]ScanBlob)
+	if err := d.Decode(res); err != nil {
+		return err
+	}
+	q.QueryResult = *res
+	return nil
+}
+
+// streamDecodeScanEvents walks the top-level JSON array and dispatches each event
+// to handler one at a time, keeping the decoder's internal buffer small.
+func streamDecodeScanEvents(d *json.Decoder, handler func(map[string]interface{})) error {
+	// consume outer [
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	for d.More() {
+		if err := streamDecodeScanBlob(d, handler); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func streamDecodeScanBlob(d *json.Decoder, handler func(map[string]interface{})) error {
+	// consume {
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	for d.More() {
+		keyTok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		if key, _ := keyTok.(string); key == "events" {
+			if err := streamDecodeScanEventsArray(d, handler); err != nil {
+				return err
+			}
+		} else {
+			// skip segmentId, columns, etc.
+			var skip json.RawMessage
+			if err := d.Decode(&skip); err != nil {
+				return err
+			}
+		}
+	}
+	// consume }
+	_, err := d.Token()
+	return err
+}
+
+func streamDecodeScanEventsArray(d *json.Decoder, handler func(map[string]interface{})) error {
+	// consume [
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	for d.More() {
+		var event map[string]interface{}
+		if err := d.Decode(&event); err != nil {
+			return err
+		}
+		handler(event)
+	}
+	// consume ]
+	_, err := d.Token()
+	return err
+}
+
 // QueryScanGeneric is the model for scan query but with a generic response type.
 type QueryScanGeneric[T any] struct {
 	*QueryScan
@@ -378,6 +462,17 @@ type ScanBlobGeneric[T any] struct {
 func (q *QueryScanGeneric[T]) onResponse(content []byte) error {
 	res := new([]ScanBlobGeneric[T])
 	d := json.NewDecoder(bytes.NewReader(content))
+	d.UseNumber()
+	if err := d.Decode(res); err != nil {
+		return err
+	}
+	q.QueryResult = *res
+	return nil
+}
+
+func (q *QueryScanGeneric[T]) onResponseReader(r io.Reader) error {
+	res := new([]ScanBlobGeneric[T])
+	d := json.NewDecoder(r)
 	d.UseNumber()
 	if err := d.Decode(res); err != nil {
 		return err
